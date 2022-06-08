@@ -8,6 +8,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE PackageImports             #-}
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
@@ -59,6 +60,8 @@ import Data.OpenApi.Internal
 import Data.OpenApi.Internal.Schema
 import Data.OpenApi.Internal.Utils
 import Data.OpenApi.Lens
+
+import qualified Debug.Trace as Debug
 
 -- | Validate @'ToJSON'@ instance matches @'ToSchema'@ for a given value.
 -- This can be used with QuickCheck to ensure those instances are coherent:
@@ -346,6 +349,21 @@ validateString s = do
     withConfig $ \cfg -> do
       when (not (configPatternChecker cfg regex s)) $
         invalid ("string does not match pattern " ++ show regex)
+
+  check format $ \f ->
+    let
+      maybeRegex = case f of
+        "hostname" -> Just "^([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\\-]{0,61}[a-zA-Z0-9])(\\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\\-]{0,61}[a-zA-Z0-9]))*$"
+        "ipv4" -> Just "^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.){3}(25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)$"
+        "ipv6" -> Just "(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))"
+        _ -> Nothing
+    in withConfig $ \cfg ->
+      case maybeRegex of
+        Nothing -> Debug.trace ("unknown format " <> Text.unpack f) (pure ())
+        Just formatRegex ->
+          when (not (configPatternChecker cfg formatRegex s)) $
+            invalid ("string does not match format " <> Text.unpack f)
+
   where
     len = Text.length s
 
@@ -489,11 +507,11 @@ validateSchemaType val = withSchema $ \sch ->
         1 -> valid
         _ -> invalid $ "Value matches more than one of 'oneOf' schemas: " ++ show val
     (view allOf -> Just variants) -> do
-      schemas <- for variants $ \case
+      subSchemas <- for variants $ \case
         Ref ref  -> withRef ref pure
         Inline s -> pure s
 
-      sub (mconcat schemas) $ validateWithSchema val
+      sub (mconcat subSchemas) $ validateWithSchema val
 
     _ ->
       case (sch ^. type_, val) of
