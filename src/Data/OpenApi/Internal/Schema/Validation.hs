@@ -29,7 +29,7 @@ import           Prelude                             ()
 import           Prelude.Compat
 
 import           Control.Applicative
-import           Control.Lens                        hiding (allOf)
+import           Control.Lens                        hiding (allOf, anyOf)
 import           Control.Monad                       (forM, when)
 
 import           Data.Aeson                          hiding (Result)
@@ -506,6 +506,12 @@ validateSchemaType val = withSchema $ \sch ->
         0 -> invalid $ "Value not valid under any of 'oneOf' schemas: " ++ show val
         1 -> valid
         _ -> invalid $ "Value matches more than one of 'oneOf' schemas: " ++ show val
+    (view anyOf -> Just variants) -> do
+      res <- forM variants $ \var ->
+        (True <$ validateWithSchemaRef var val) <|> (return False)
+      case length $ filter id res of
+        0 -> invalid $ "Value not valid under any of 'anyOf' schemas: " ++ show val
+        _ -> valid
     (view allOf -> Just variants) -> do
       subSchemas <- for variants $ \case
         Ref ref  -> withRef ref pure
